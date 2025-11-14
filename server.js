@@ -1,0 +1,110 @@
+import express from "express";
+import dotenv from "dotenv";
+import cors from "cors";
+import colors from "colors";
+import cookieParser from "cookie-parser";
+import fileUpload from "express-fileupload";
+import { v2 as cloudinary } from "cloudinary";
+import { createTables } from "./utils/createTables.js";
+import { errorMiddleware } from "./middlewares/errorMiddleware.js";
+import authRouter from "./router/authRouter.js";
+import productRouter from "./router/productRouter.js";
+import adminRouter from "./router/adminRouter.js";
+import database from "./database/db.js";
+import crypto from "crypto";
+import qs from "qs";
+import orderRouter from "./router/orderRouter.js";
+
+const app = express();
+dotenv.config();
+
+const port = process.env.PORT || 4000;
+
+app.use(express.json({ limit: "50mb" }));
+app.use(
+  cors({
+    origin: [process.env.FRONTEND_URL, process.env.DASHBOARD_URL],
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+app.use(cookieParser());
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  fileUpload({
+    tempFileDir: "./uploads",
+    useTempFiles: true,
+  })
+);
+
+app.post(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    let event;
+    try {
+      event = Stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (error) {
+      return res.status(400).send(`Webhook Error: ${error.message || error}`);
+    }
+
+    if (event.type === "payment_intent.succeeded") {
+      const paymentIntent_client_secret = event.data.object.client_secret;
+      try {
+        const updatedPaymentStatus = "Paid";
+        const paymentTableUpdateResult = await database.query(
+          `UPDATE payments SET payment_status = $1 WHERE payment_intent_id = $2 RETURNING *`,
+          [updatedPaymentStatus, paymentIntent_client_secret]
+        );
+        const orderId = paymentTableUpdateResult.rows[0].order_id;
+        const orderTableUpdateResult = await database.query(
+          `UPDATE orders SET paid_at = NOW() WHERE id = $1 RETURNING *`,
+          [orderId]
+        );
+        const { rows: orderedItems } = await database.query(
+          `SELECT product_id, quantity FROM order_items WHERE order_id = $1`,
+          [orderId]
+        );
+        for (const item of orderedItems) {
+          await database.query(
+            `UPDATE products SET stock = stock - $1 WHERE id = $2`,
+            [item.quantity, item.product_id]
+          );
+        }
+      } catch (error) {
+        return res
+          .status(500)
+          .send(`Error updating paid_at timestamp in orders table.`);
+      }
+    }
+    res.status(200).send({ received: true });
+  }
+);
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_SECRET_KEY,
+});
+
+createTables();
+
+app.use("/api/auth", authRouter);
+app.use("/api/product", productRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/order", orderRouter)
+
+app.use(errorMiddleware);
+
+app.get("/", (req, res) => {
+  res.send("App is working!");
+});
+
+app.listen(port, () => {
+  console.log(`Server is running at http://localhost:${port}`.bgMagenta.white);
+});
