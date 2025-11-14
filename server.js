@@ -11,16 +11,9 @@ import authRouter from "./router/authRouter.js";
 import productRouter from "./router/productRouter.js";
 import adminRouter from "./router/adminRouter.js";
 import database from "./database/db.js";
-import crypto from "crypto";
-import qs from "qs";
 import orderRouter from "./router/orderRouter.js";
 
 const app = express();
-dotenv.config();
-
-const port = process.env.PORT || 4000;
-
-app.use(express.json({ limit: "50mb" }));
 app.use(
   cors({
     origin: [process.env.FRONTEND_URL, process.env.DASHBOARD_URL],
@@ -28,6 +21,11 @@ app.use(
     credentials: true,
   })
 );
+dotenv.config();
+
+const port = process.env.PORT || 4000;
+
+app.use(express.json({ limit: "50mb" }));
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
 app.use(
