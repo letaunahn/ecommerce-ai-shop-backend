@@ -14,6 +14,7 @@ import database from "./database/db.js";
 import orderRouter from "./router/orderRouter.js";
 
 const app = express();
+dotenv.config();
 app.use(
   cors({
     origin: [process.env.FRONTEND_URL, process.env.DASHBOARD_URL],
@@ -21,7 +22,7 @@ app.use(
     credentials: true,
   })
 );
-dotenv.config();
+
 
 const port = process.env.PORT || 4000;
 
